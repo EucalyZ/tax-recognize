@@ -1,50 +1,46 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { useEffect } from 'react';
+import { Toaster } from 'sonner';
+import { Sidebar, Header } from './components/layout';
+import { HomePage, SettingsPage } from './pages';
+import { useUIStore } from './stores/uiStore';
+import { useSettingsStore } from './stores/settingsStore';
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const { currentPage } = useUIStore();
+  const { loadSettings } = useSettingsStore();
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+  // 应用启动时加载设置
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+    <div className="flex h-screen bg-gray-50">
+      {/* 侧边栏 */}
+      <Sidebar />
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+      {/* 主内容区 */}
+      <div className="flex flex-col flex-1 overflow-hidden">
+        {/* 顶部导航 */}
+        <Header />
+
+        {/* 页面内容 */}
+        <main className="flex-1 overflow-auto">
+          {currentPage === 'home' && <HomePage />}
+          {currentPage === 'settings' && <SettingsPage />}
+        </main>
       </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
 
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
+      {/* Toast 通知 */}
+      <Toaster
+        position="top-right"
+        richColors
+        closeButton
+        toastOptions={{
+          duration: 3000,
         }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+      />
+    </div>
   );
 }
 
