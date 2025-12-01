@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Save, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Modal } from '../ui/Modal';
+import { ConfirmModal } from '../ui/ConfirmModal';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Loading } from '../ui/Loading';
@@ -30,6 +31,7 @@ export function InvoiceDetail({
   const [category, setCategory] = useState('');
   const [remark, setRemark] = useState('');
   const [hasChanges, setHasChanges] = useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
   /** 加载发票详情 */
   useEffect(() => {
@@ -99,13 +101,21 @@ export function InvoiceDetail({
   /** 关闭时检查未保存更改 */
   const handleClose = useCallback(() => {
     if (hasChanges) {
-      const confirmed = window.confirm('有未保存的更改，确定要关闭吗？');
-      if (!confirmed) return;
+      setShowCloseConfirm(true);
+      return;
     }
     setInvoice(null);
     setHasChanges(false);
     onClose();
   }, [hasChanges, onClose]);
+
+  /** 确认关闭（放弃未保存更改） */
+  const confirmClose = useCallback(() => {
+    setShowCloseConfirm(false);
+    setInvoice(null);
+    setHasChanges(false);
+    onClose();
+  }, [onClose]);
 
   const footer = (
     <>
@@ -120,6 +130,7 @@ export function InvoiceDetail({
   );
 
   return (
+    <>
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
@@ -236,6 +247,17 @@ export function InvoiceDetail({
         </div>
       ) : null}
     </Modal>
+
+    <ConfirmModal
+      isOpen={showCloseConfirm}
+      onClose={() => setShowCloseConfirm(false)}
+      onConfirm={confirmClose}
+      title="未保存的更改"
+      message="有未保存的更改，确定要关闭吗？"
+      confirmText="放弃更改"
+      variant="warning"
+    />
+    </>
   );
 }
 

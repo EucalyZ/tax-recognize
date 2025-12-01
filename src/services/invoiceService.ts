@@ -133,8 +133,8 @@ export const invoiceService = {
     invoiceType?: string
   ): Promise<Invoice> {
     const result = await invoke<BackendInvoice>('recognize_and_save_invoice', {
-      file_path: filePath,
-      invoice_type: invoiceType,
+      filePath,
+      invoiceType,
     });
     return transformInvoice(result);
   },
@@ -155,8 +155,8 @@ export const invoiceService = {
       error?: string;
     }
     const results = await invoke<BackendRecognizeResult[]>('recognize_invoices_batch', {
-      file_paths: filePaths,
-      invoice_type: invoiceType,
+      filePaths,
+      invoiceType,
     });
     return results.map((r) => ({
       filePath: r.file_path,
@@ -179,10 +179,10 @@ export const invoiceService = {
   ): Promise<PagedResult<Invoice>> {
     const result = await invoke<BackendPagedResult>('get_invoices', {
       page,
-      page_size: pageSize,
-      invoice_type: filter.invoiceType,
-      date_from: filter.dateFrom,
-      date_to: filter.dateTo,
+      pageSize,
+      invoiceType: filter.invoiceType,
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
       keyword: filter.keyword,
     });
     return {
@@ -235,8 +235,8 @@ export const invoiceService = {
    */
   async testOcrConnection(apiKey: string, secretKey: string): Promise<boolean> {
     return invoke<boolean>('test_ocr_connection', {
-      api_key: apiKey,
-      secret_key: secretKey,
+      apiKey,
+      secretKey,
     });
   },
 };

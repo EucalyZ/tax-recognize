@@ -1,93 +1,140 @@
-import { useCallback, useState } from 'react';
-import { useDropzone, FileRejection } from 'react-dropzone';
-import { Upload, File, X, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { useCallback, useState, useEffect, useRef } from 'react';
+import { Upload } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { toast } from 'sonner';
 import { invoiceService } from '../../services/invoiceService';
 import { useInvoiceStore } from '../../stores/invoiceStore';
+import { UploadQueue, UploadItem } from './UploadQueue';
+import { DropZoneOverlay } from './DropZoneOverlay';
 
 /** 支持的文件扩展名 */
 const ACCEPTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.pdf'];
-const ACCEPTED_MIME_TYPES = {
-  'image/jpeg': ['.jpg', '.jpeg'],
-  'image/png': ['.png'],
-  'image/bmp': ['.bmp'],
-  'application/pdf': ['.pdf'],
-};
-
-/** 上传文件项 */
-interface UploadItem {
-  id: string;
-  name: string;
-  path: string;
-  status: 'pending' | 'uploading' | 'success' | 'error';
-  error?: string;
-}
 
 /** 生成唯一ID */
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 }
 
+/** 最大并发数 */
+const MAX_CONCURRENT = 2;
+
+/** 重试延迟（毫秒） */
+const RETRY_DELAY = 500;
+
+/** 最大重试次数 */
+const MAX_RETRIES = 3;
+
+/** 判断是否为可重试错误（QPS限制、网络错误等） */
+function isRetryableError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  const lowerMsg = msg.toLowerCase();
+  return (
+    lowerMsg.includes('qps') ||
+    lowerMsg.includes('request limit') ||
+    lowerMsg.includes('error sending request') ||
+    lowerMsg.includes('network') ||
+    lowerMsg.includes('timeout') ||
+    lowerMsg.includes('connection') ||
+    lowerMsg.includes('econnreset') ||
+    lowerMsg.includes('enotfound')
+  );
+}
+
+/** 延迟函数 */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 检查文件扩展名是否支持 */
+function isValidExtension(filePath: string): boolean {
+  const ext = filePath.toLowerCase().split('.').pop();
+  return ext ? ACCEPTED_EXTENSIONS.includes(`.${ext}`) : false;
+}
+
 export function FileUploader() {
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const { fetchInvoices } = useInvoiceStore();
 
-  /** 处理单个文件上传 */
-  const processFile = useCallback(async (item: UploadItem) => {
+  // 全局队列处理状态
+  const isProcessingRef = useRef(false);
+  const pendingQueueRef = useRef<UploadItem[]>([]);
+  const statsRef = useRef({ success: 0, error: 0 });
+
+  /** 处理单个文件上传（带 QPS 限制重试） */
+  const processFile = useCallback(async (item: UploadItem): Promise<boolean> => {
     setUploadItems((prev) =>
       prev.map((i) => (i.id === item.id ? { ...i, status: 'uploading' } : i))
     );
 
-    try {
-      await invoiceService.recognizeAndSaveInvoice(item.path);
-      setUploadItems((prev) =>
-        prev.map((i) => (i.id === item.id ? { ...i, status: 'success' } : i))
-      );
-      return true;
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : '识别失败';
-      setUploadItems((prev) =>
-        prev.map((i) =>
-          i.id === item.id ? { ...i, status: 'error', error: errorMsg } : i
-        )
-      );
-      return false;
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        await invoiceService.recognizeAndSaveInvoice(item.path);
+        setUploadItems((prev) =>
+          prev.map((i) => (i.id === item.id ? { ...i, status: 'success' } : i))
+        );
+        return true;
+      } catch (err) {
+        lastError = err;
+        if (isRetryableError(err) && attempt < MAX_RETRIES) {
+          await delay(RETRY_DELAY);
+          continue;
+        }
+        break;
+      }
     }
+
+    const errorMsg = lastError instanceof Error ? lastError.message : '识别失败';
+    setUploadItems((prev) =>
+      prev.map((i) =>
+        i.id === item.id ? { ...i, status: 'error', error: errorMsg } : i
+      )
+    );
+    return false;
   }, []);
 
-  /** 处理所有待上传文件 */
-  const processAllFiles = useCallback(
-    async (items: UploadItem[]) => {
-      if (items.length === 0) return;
+  /** 全局队列处理器 - 只在队列完全清空后显示 toast */
+  const processQueue = useCallback(async () => {
+    if (isProcessingRef.current) return;
+    isProcessingRef.current = true;
 
-      setIsProcessing(true);
-      let successCount = 0;
-      let errorCount = 0;
+    const executing: Promise<void>[] = [];
 
-      for (const item of items) {
-        const success = await processFile(item);
-        if (success) {
-          successCount++;
-        } else {
-          errorCount++;
-        }
+    while (pendingQueueRef.current.length > 0 || executing.length > 0) {
+      // 从队列取出待处理项
+      while (executing.length < MAX_CONCURRENT && pendingQueueRef.current.length > 0) {
+        const item = pendingQueueRef.current.shift()!;
+        const promise = processFile(item).then((success) => {
+          if (success) statsRef.current.success++;
+          else statsRef.current.error++;
+          executing.splice(executing.indexOf(promise), 1);
+        });
+        executing.push(promise);
       }
+      if (executing.length > 0) {
+        await Promise.race(executing);
+      }
+    }
 
-      setIsProcessing(false);
+    // 所有文件处理完成，显示汇总通知
+    const { success, error } = statsRef.current;
+    if (success > 0 || error > 0) {
       await fetchInvoices();
-
-      if (successCount > 0 && errorCount === 0) {
-        toast.success(`成功识别 ${successCount} 张发票`);
-      } else if (successCount > 0 && errorCount > 0) {
-        toast.warning(`识别完成：${successCount} 成功，${errorCount} 失败`);
-      } else if (errorCount > 0) {
-        toast.error(`识别失败：${errorCount} 张发票`);
+      if (success > 0 && error === 0) {
+        toast.success(`成功识别 ${success} 张发票`);
+      } else if (success > 0 && error > 0) {
+        toast.warning(`识别完成：${success} 成功，${error} 失败`);
+      } else if (error > 0) {
+        toast.error(`识别失败：${error} 张发票`);
       }
-    },
-    [processFile, fetchInvoices]
-  );
+    }
+
+    // 重置状态
+    statsRef.current = { success: 0, error: 0 };
+    isProcessingRef.current = false;
+  }, [processFile, fetchInvoices]);
 
   /** 添加文件到上传队列 */
   const addFilesToQueue = useCallback(
@@ -100,29 +147,78 @@ export function FileUploader() {
       }));
 
       setUploadItems((prev) => [...prev, ...newItems]);
-      processAllFiles(newItems);
+      pendingQueueRef.current.push(...newItems);
+      processQueue();
     },
-    [processAllFiles]
+    [processQueue]
   );
 
-  /** 处理 dropzone 文件拖放 */
-  const onDrop = useCallback(
-    (acceptedFiles: File[], rejectedFiles: FileRejection[]) => {
-      if (rejectedFiles.length > 0) {
-        toast.error('部分文件格式不支持，请上传 JPG、PNG、BMP 或 PDF 文件');
-      }
+  // 使用 ref 保存最新的 addFilesToQueue，避免 useEffect 重复注册
+  const addFilesToQueueRef = useRef(addFilesToQueue);
+  addFilesToQueueRef.current = addFilesToQueue;
 
-      // 获取文件路径 (Tauri 环境下 File 对象有 path 属性)
-      const filePaths = acceptedFiles
-        .map((file) => (file as File & { path?: string }).path)
-        .filter((path): path is string => !!path);
+  // 防止重复处理同一批文件
+  const lastDropTimeRef = useRef(0);
+  const processingPathsRef = useRef<Set<string>>(new Set());
 
-      if (filePaths.length > 0) {
-        addFilesToQueue(filePaths);
+  /** 监听 Tauri 拖放事件 */
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    const setupDragDrop = async () => {
+      try {
+        const webview = getCurrentWebview();
+        unlisten = await webview.onDragDropEvent((event) => {
+          if (event.payload.type === 'over') {
+            setIsDragOver(true);
+          } else if (event.payload.type === 'drop') {
+            setIsDragOver(false);
+            
+            // 防抖：100ms 内的重复 drop 事件忽略
+            const now = Date.now();
+            if (now - lastDropTimeRef.current < 100) {
+              return;
+            }
+            lastDropTimeRef.current = now;
+            
+            const paths = event.payload.paths;
+            // 过滤支持的文件类型
+            const validPaths = paths.filter(isValidExtension);
+            
+            // 过滤掉正在处理中的文件
+            const newPaths = validPaths.filter(p => !processingPathsRef.current.has(p));
+            
+            const invalidCount = paths.length - validPaths.length;
+            if (invalidCount > 0) {
+              toast.error(`${invalidCount} 个文件格式不支持，请上传 JPG、PNG、BMP 或 PDF 文件`);
+            }
+            
+            if (newPaths.length > 0) {
+              // 标记为处理中
+              newPaths.forEach(p => processingPathsRef.current.add(p));
+              addFilesToQueueRef.current(newPaths);
+              // 5秒后清除标记，允许重新上传
+              setTimeout(() => {
+                newPaths.forEach(p => processingPathsRef.current.delete(p));
+              }, 5000);
+            }
+          } else if (event.payload.type === 'leave') {
+            setIsDragOver(false);
+          }
+        });
+      } catch (err) {
+        console.error('Failed to setup drag-drop listener:', err);
       }
-    },
-    [addFilesToQueue]
-  );
+    };
+
+    setupDragDrop();
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, []); // 空依赖，只注册一次
 
   /** 使用系统对话框选择文件 */
   const handleSelectFiles = useCallback(async () => {
@@ -159,129 +255,27 @@ export function FileUploader() {
     );
   }, []);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: ACCEPTED_MIME_TYPES,
-    noClick: true,
-  });
-
-  const hasCompletedItems = uploadItems.some(
-    (item) => item.status === 'success' || item.status === 'error'
-  );
-
   return (
-    <div className="space-y-4">
-      {/* 拖放区域 */}
-      <div
-        {...getRootProps()}
-        className={`
-          relative flex flex-col items-center justify-center
-          p-8 border-2 border-dashed rounded-lg
-          transition-colors duration-200 cursor-pointer
-          ${
-            isDragActive
-              ? 'border-blue-500 bg-blue-50'
-              : 'border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-blue-400'
-          }
-        `}
+    <>
+      {/* 紧凑上传按钮 */}
+      <button
+        type="button"
         onClick={handleSelectFiles}
+        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
       >
-        <input {...getInputProps()} />
-        <Upload
-          className={`h-10 w-10 mb-3 ${
-            isDragActive ? 'text-blue-500' : 'text-gray-400'
-          }`}
-        />
-        <p className="text-base font-medium text-gray-700">
-          {isDragActive ? '释放文件开始上传' : '拖拽文件到此处上传'}
-        </p>
-        <p className="text-sm text-gray-500 mt-1">
-          支持 {ACCEPTED_EXTENSIONS.join('、')} 格式
-        </p>
-        <button
-          type="button"
-          className="mt-4 px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleSelectFiles();
-          }}
-        >
-          选择文件
-        </button>
-      </div>
+        <Upload className="h-4 w-4" />
+        上传发票
+      </button>
 
-      {/* 上传队列 */}
-      {uploadItems.length > 0 && (
-        <div className="bg-white rounded-lg border border-gray-200">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-            <span className="text-sm font-medium text-gray-700">
-              上传队列 ({uploadItems.length})
-            </span>
-            {hasCompletedItems && (
-              <button
-                type="button"
-                onClick={clearCompleted}
-                className="text-sm text-gray-500 hover:text-gray-700"
-              >
-                清除已完成
-              </button>
-            )}
-          </div>
-          <ul className="divide-y divide-gray-100 max-h-60 overflow-y-auto">
-            {uploadItems.map((item) => (
-              <UploadItemRow
-                key={item.id}
-                item={item}
-                onRemove={() => removeItem(item.id)}
-              />
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* 全局拖拽覆盖层 */}
+      <DropZoneOverlay isDragOver={isDragOver} />
 
-      {/* 处理中遮罩提示 */}
-      {isProcessing && (
-        <div className="text-center text-sm text-gray-500">
-          <Loader2 className="inline h-4 w-4 animate-spin mr-1" />
-          正在处理文件...
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** 上传项行组件 */
-interface UploadItemRowProps {
-  item: UploadItem;
-  onRemove: () => void;
-}
-
-function UploadItemRow({ item, onRemove }: UploadItemRowProps) {
-  const statusIcons = {
-    pending: <File className="h-4 w-4 text-gray-400" />,
-    uploading: <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />,
-    success: <CheckCircle className="h-4 w-4 text-green-500" />,
-    error: <AlertCircle className="h-4 w-4 text-red-500" />,
-  };
-
-  return (
-    <li className="flex items-center gap-3 px-4 py-3">
-      {statusIcons[item.status]}
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-gray-700 truncate">{item.name}</p>
-        {item.error && (
-          <p className="text-xs text-red-500 truncate">{item.error}</p>
-        )}
-      </div>
-      {(item.status === 'success' || item.status === 'error') && (
-        <button
-          type="button"
-          onClick={onRemove}
-          className="p-1 text-gray-400 hover:text-gray-600 rounded"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      )}
-    </li>
+      {/* 右上角上传队列 */}
+      <UploadQueue
+        items={uploadItems}
+        onRemove={removeItem}
+        onClearCompleted={clearCompleted}
+      />
+    </>
   );
 }

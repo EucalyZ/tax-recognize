@@ -18,6 +18,6 @@ export const fileService = {
    * @param filePath 文件路径
    */
   async readFileAsBase64(filePath: string): Promise<string> {
-    return invoke<string>('read_file_as_base64', { filePath });
+    return invoke<string>('get_file_base64', { filePath });
   },
 };

@@ -1,10 +1,10 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { useInvoices } from '../hooks/useInvoices';
 import { useUIStore } from '../stores/uiStore';
 import { useInvoiceStore } from '../stores/invoiceStore';
-import { Loading } from '../components/ui/Loading';
+import { Loading, ConfirmModal } from '../components/ui';
 import {
   FileUploader,
   InvoiceTable,
@@ -12,6 +12,14 @@ import {
   InvoiceDetail,
   Pagination,
 } from '../components/invoice';
+
+/** 删除确认状态 */
+interface DeleteConfirmState {
+  isOpen: boolean;
+  type: 'single' | 'batch';
+  id?: string;
+  count?: number;
+}
 
 /**
  * 主页 - 发票列表和上传
@@ -39,6 +47,12 @@ export function HomePage() {
   const { detailModalOpen, selectedInvoiceId, openDetailModal, closeDetailModal } =
     useUIStore();
 
+  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState>({
+    isOpen: false,
+    type: 'single',
+  });
+  const [deleting, setDeleting] = useState(false);
+
   /** 显示错误 */
   useEffect(() => {
     if (error) {
@@ -55,40 +69,41 @@ export function HomePage() {
     [openDetailModal]
   );
 
-  /** 删除单个发票 */
-  const handleDeleteInvoice = useCallback(
-    async (id: string) => {
-      const confirmed = window.confirm('确定要删除这张发票吗？');
-      if (!confirmed) return;
+  /** 打开删除单个发票确认 */
+  const handleDeleteInvoice = useCallback((id: string) => {
+    setDeleteConfirm({ isOpen: true, type: 'single', id });
+  }, []);
 
-      try {
-        await deleteInvoice(id);
-        toast.success('删除成功');
-      } catch (err) {
-        const message = err instanceof Error ? err.message : '删除失败';
-        toast.error(message);
-      }
-    },
-    [deleteInvoice]
-  );
-
-  /** 批量删除发票 */
-  const handleDeleteSelected = useCallback(async () => {
+  /** 打开批量删除确认 */
+  const handleDeleteSelected = useCallback(() => {
     if (selectedIds.length === 0) return;
+    setDeleteConfirm({ isOpen: true, type: 'batch', count: selectedIds.length });
+  }, [selectedIds.length]);
 
-    const confirmed = window.confirm(
-      `确定要删除选中的 ${selectedIds.length} 张发票吗？`
-    );
-    if (!confirmed) return;
+  /** 关闭删除确认 */
+  const closeDeleteConfirm = useCallback(() => {
+    setDeleteConfirm({ isOpen: false, type: 'single' });
+  }, []);
 
+  /** 确认删除 */
+  const confirmDelete = useCallback(async () => {
+    setDeleting(true);
     try {
-      await deleteBatch(selectedIds);
-      toast.success(`成功删除 ${selectedIds.length} 张发票`);
+      if (deleteConfirm.type === 'single' && deleteConfirm.id) {
+        await deleteInvoice(deleteConfirm.id);
+        toast.success('删除成功');
+      } else if (deleteConfirm.type === 'batch') {
+        await deleteBatch(selectedIds);
+        toast.success(`成功删除 ${selectedIds.length} 张发票`);
+      }
+      closeDeleteConfirm();
     } catch (err) {
-      const message = err instanceof Error ? err.message : '批量删除失败';
+      const message = err instanceof Error ? err.message : '删除失败';
       toast.error(message);
+    } finally {
+      setDeleting(false);
     }
-  }, [selectedIds, deleteBatch]);
+  }, [deleteConfirm, deleteInvoice, deleteBatch, selectedIds, closeDeleteConfirm]);
 
   /** 筛选条件变更 */
   const handleFilterChange = useCallback(
@@ -100,8 +115,11 @@ export function HomePage() {
 
   return (
     <div className="flex flex-col h-full p-6 space-y-4">
-      {/* 上传区域 */}
-      <FileUploader />
+      {/* 筛选条件栏（包含上传按钮） */}
+      <div className="flex items-center gap-4">
+        <FileUploader />
+        <div className="flex-1" />
+      </div>
 
       {/* 筛选条件栏 */}
       <InvoiceFilter
@@ -152,6 +170,22 @@ export function HomePage() {
         isOpen={detailModalOpen}
         onClose={closeDetailModal}
         onUpdate={refresh}
+      />
+
+      {/* 删除确认 Modal */}
+      <ConfirmModal
+        isOpen={deleteConfirm.isOpen}
+        onClose={closeDeleteConfirm}
+        onConfirm={confirmDelete}
+        title="确认删除"
+        message={
+          deleteConfirm.type === 'single'
+            ? '确定要删除这张发票吗？此操作不可恢复。'
+            : `确定要删除选中的 ${deleteConfirm.count} 张发票吗？此操作不可恢复。`
+        }
+        confirmText="删除"
+        variant="danger"
+        loading={deleting}
       />
     </div>
   );

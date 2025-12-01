@@ -4,6 +4,7 @@ use crate::models::config::config_keys;
 use crate::models::ocr_response::{
     BaiduErrorResponse, BaiduTokenResponse, VatInvoiceResponse,
 };
+use crate::services::file::FileType;
 use reqwest::Client;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -109,55 +110,66 @@ impl OcrService {
     pub async fn recognize_vat_invoice(
         &self,
         token: &str,
-        image_base64: &str,
+        file_base64: &str,
+        file_type: &FileType,
     ) -> Result<VatInvoiceResponse, AppError> {
-        self.call_ocr_api(BAIDU_VAT_INVOICE_URL, token, image_base64).await
+        self.call_ocr_api(BAIDU_VAT_INVOICE_URL, token, file_base64, file_type).await
     }
 
     /// 识别通用票据
     pub async fn recognize_invoice(
         &self,
         token: &str,
-        image_base64: &str,
+        file_base64: &str,
+        file_type: &FileType,
     ) -> Result<serde_json::Value, AppError> {
-        self.call_ocr_api(BAIDU_INVOICE_URL, token, image_base64).await
+        self.call_ocr_api(BAIDU_INVOICE_URL, token, file_base64, file_type).await
     }
 
     /// 识别火车票
     pub async fn recognize_train_ticket(
         &self,
         token: &str,
-        image_base64: &str,
+        file_base64: &str,
+        file_type: &FileType,
     ) -> Result<serde_json::Value, AppError> {
-        self.call_ocr_api(BAIDU_TRAIN_TICKET_URL, token, image_base64).await
+        self.call_ocr_api(BAIDU_TRAIN_TICKET_URL, token, file_base64, file_type).await
     }
 
     /// 识别出租车票
     pub async fn recognize_taxi_receipt(
         &self,
         token: &str,
-        image_base64: &str,
+        file_base64: &str,
+        file_type: &FileType,
     ) -> Result<serde_json::Value, AppError> {
-        self.call_ocr_api(BAIDU_TAXI_RECEIPT_URL, token, image_base64).await
+        self.call_ocr_api(BAIDU_TAXI_RECEIPT_URL, token, file_base64, file_type).await
     }
 
     /// 识别机票行程单
     pub async fn recognize_air_ticket(
         &self,
         token: &str,
-        image_base64: &str,
+        file_base64: &str,
+        file_type: &FileType,
     ) -> Result<serde_json::Value, AppError> {
-        self.call_ocr_api(BAIDU_AIR_TICKET_URL, token, image_base64).await
+        self.call_ocr_api(BAIDU_AIR_TICKET_URL, token, file_base64, file_type).await
     }
 
     async fn call_ocr_api<T: serde::de::DeserializeOwned>(
         &self,
         base_url: &str,
         token: &str,
-        image_base64: &str,
+        file_base64: &str,
+        file_type: &FileType,
     ) -> Result<T, AppError> {
         let url = format!("{}?access_token={}", base_url, token);
-        let params = [("image", image_base64)];
+
+        let params: Vec<(&str, &str)> = if *file_type == FileType::Pdf {
+            vec![("pdf_file", file_base64)]
+        } else {
+            vec![("image", file_base64)]
+        };
 
         let response = self
             .client

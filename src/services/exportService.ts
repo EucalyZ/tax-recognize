@@ -14,7 +14,7 @@ export const exportService = {
   async exportInvoices(ids: string[], outputPath: string): Promise<ExportResult> {
     return invoke<ExportResult>('export_invoices', {
       ids,
-      output_path: outputPath,
+      outputPath,
     });
   },
 
@@ -28,10 +28,10 @@ export const exportService = {
     outputPath: string
   ): Promise<ExportResult> {
     return invoke<ExportResult>('export_all_invoices', {
-      output_path: outputPath,
-      invoice_type: filter.invoiceType,
-      date_from: filter.dateFrom,
-      date_to: filter.dateTo,
+      outputPath,
+      invoiceType: filter.invoiceType,
+      dateFrom: filter.dateFrom,
+      dateTo: filter.dateTo,
       keyword: filter.keyword,
       category: filter.category,
     });

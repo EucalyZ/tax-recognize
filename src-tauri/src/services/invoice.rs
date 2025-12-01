@@ -86,7 +86,7 @@ impl InvoiceService {
     ) -> Result<Invoice, AppError> {
         let response = self
             .ocr_service
-            .recognize_vat_invoice(token, image_base64)
+            .recognize_vat_invoice(token, image_base64, &file_info.file_type)
             .await?;
 
         let raw_json = serde_json::to_string(&response).unwrap_or_default();
@@ -107,7 +107,7 @@ impl InvoiceService {
     ) -> Result<Invoice, AppError> {
         let response = self
             .ocr_service
-            .recognize_invoice(token, image_base64)
+            .recognize_invoice(token, image_base64, &file_info.file_type)
             .await?;
 
         let raw_json = serde_json::to_string(&response).unwrap_or_default();
