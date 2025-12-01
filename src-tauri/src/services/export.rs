@@ -55,6 +55,7 @@ impl ExportService {
             "销售方名称",
             "销售方税号",
             "购买方名称",
+            "购买方税号",
             "商品名称",
             "分类",
             "备注",
@@ -133,6 +134,12 @@ impl ExportService {
             .map_err(|e| AppError::FileProcess(e.to_string()))?;
         col += 1;
 
+        // 购买方税号
+        worksheet
+            .write_string(row, col, invoice.buyer_tax_number.as_deref().unwrap_or(""))
+            .map_err(|e| AppError::FileProcess(e.to_string()))?;
+        col += 1;
+
         // 商品名称
         worksheet
             .write_string(row, col, invoice.commodity_name.as_deref().unwrap_or(""))
@@ -166,6 +173,7 @@ impl ExportService {
             25.0, // 销售方名称
             20.0, // 销售方税号
             25.0, // 购买方名称
+            20.0, // 购买方税号
             30.0, // 商品名称
             12.0, // 分类
             20.0, // 备注

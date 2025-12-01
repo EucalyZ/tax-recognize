@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Toaster } from 'sonner';
 import { Sidebar, Header } from './components/layout';
 import { HomePage, SettingsPage } from './pages';
+import { UpdateChecker } from './components/ui/UpdateChecker';
 import { useUIStore } from './stores/uiStore';
 import { useSettingsStore } from './stores/settingsStore';
 
@@ -40,6 +41,9 @@ function App() {
           duration: 3000,
         }}
       />
+
+      {/* 更新检查器 */}
+      <UpdateChecker />
     </div>
   );
 }

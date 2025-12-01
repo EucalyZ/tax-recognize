@@ -31,6 +31,15 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/EucalyZ/tax-recognize/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcyMkJFMjkzMzg2Q0VDMUMKUldRYzdHdzRrK0lyY3BuYXM2Vmd2WE1qZjFqTGQyUE9FemVPV2V3c2ZnZngvZ0JEV2pTaktreisK"
+    }
   }
 }

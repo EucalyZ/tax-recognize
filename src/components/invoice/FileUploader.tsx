@@ -5,6 +5,8 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { toast } from 'sonner';
 import { invoiceService } from '../../services/invoiceService';
 import { useInvoiceStore } from '../../stores/invoiceStore';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { useUIStore } from '../../stores/uiStore';
 import { UploadQueue, UploadItem } from './UploadQueue';
 import { DropZoneOverlay } from './DropZoneOverlay';
 
@@ -56,6 +58,29 @@ export function FileUploader() {
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const { fetchInvoices } = useInvoiceStore();
+  const { apiKey, secretKey, loadSettings } = useSettingsStore();
+  const { setCurrentPage } = useUIStore();
+
+  // 加载设置
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
+
+  /** 检查 API 配置是否已设置 */
+  const checkApiConfig = useCallback((): boolean => {
+    if (!apiKey || !secretKey) {
+      toast.error('请先配置百度 OCR API', {
+        description: '点击前往设置页面配置 API Key',
+        action: {
+          label: '去设置',
+          onClick: () => setCurrentPage('settings'),
+        },
+        duration: 5000,
+      });
+      return false;
+    }
+    return true;
+  }, [apiKey, secretKey, setCurrentPage]);
 
   // 全局队列处理状态
   const isProcessingRef = useRef(false);
@@ -139,6 +164,9 @@ export function FileUploader() {
   /** 添加文件到上传队列 */
   const addFilesToQueue = useCallback(
     (filePaths: string[]) => {
+      // 检查 API 配置
+      if (!checkApiConfig()) return;
+
       const newItems: UploadItem[] = filePaths.map((path) => ({
         id: generateId(),
         name: path.split(/[/\\]/).pop() || path,
@@ -150,7 +178,7 @@ export function FileUploader() {
       pendingQueueRef.current.push(...newItems);
       processQueue();
     },
-    [processQueue]
+    [processQueue, checkApiConfig]
   );
 
   // 使用 ref 保存最新的 addFilesToQueue，避免 useEffect 重复注册
