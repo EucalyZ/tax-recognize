@@ -62,7 +62,9 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: 'Tax Recognize v__VERSION__'
-          releaseBody: '查看资源以下载此版本并安装。'
+          releaseBody: |
+            ## 更新内容
+            - 查看 [Commits](https://github.com/EucalyZ/tax-recognize/commits/v__VERSION__) 了解详细更改
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
