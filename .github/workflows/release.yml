@@ -15,7 +15,7 @@ jobs:
       matrix:
         include:
           - platform: 'windows-latest'
-            args: ''
+            args: '--target x86_64-pc-windows-msvc'
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -33,6 +33,13 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-action@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
 
       - name: Install frontend dependencies
         run: pnpm install
@@ -49,4 +56,5 @@ jobs:
           releaseBody: '查看资源以下载此版本并安装。'
           releaseDraft: false
           prerelease: false
+          includeUpdaterJson: true
           args: ${{ matrix.args }}
